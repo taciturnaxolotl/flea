@@ -50,6 +50,7 @@ architecture behavior of physics_engine is
     -- Physics tuning
     constant GRAVITY    : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(1,  10);
     constant IMPULSE    : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(3,  10);
+    constant SLAM_FORCE : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(8,  10);
     constant JUMP_FORCE : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(13, 10);
     constant MAX_VEL_X  : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(32, 10);
 
@@ -59,9 +60,10 @@ architecture behavior of physics_engine is
     constant LEFT_WALL  : std_logic_vector(10 downto 0) := CONV_STD_LOGIC_VECTOR(8,    11);
     constant RIGHT_WALL : std_logic_vector(10 downto 0) := CONV_STD_LOGIC_VECTOR(1492, 11);
 
-    -- Underflow sentinel: valid positions top out at 1492; underflow wraps to >= 2000.
-    -- (Min case: CEILING(16) - max_upward(64) = -48 -> 11-bit unsigned = 2000.)
-    constant UNDERFLOW  : std_logic_vector(10 downto 0) := CONV_STD_LOGIC_VECTOR(2000, 11);
+    -- Underflow sentinel: valid positions top out at 1480 (GROUND).
+    -- CEILING(16) - max_upward(128) = -112 -> 11-bit unsigned = 1936.
+    -- So UNDERFLOW must be <= 1936 and > 1480.  1500 gives safe margin.
+    constant UNDERFLOW  : std_logic_vector(10 downto 0) := CONV_STD_LOGIC_VECTOR(1500, 11);
 
     -- Tune: vertical speed (0-63) at which all 10 LEDs are fully lit.
     -- Lower  = more sensitive (fewer LEDs at low speed fill up faster).
@@ -75,6 +77,7 @@ architecture behavior of physics_engine is
     signal on_ground    : std_logic := '0';
     signal jump_pressed : std_logic := '0';
 
+    signal abs_vel_x : std_logic_vector(9 downto 0);
     signal abs_vel_y : std_logic_vector(9 downto 0);
 
 begin
@@ -84,18 +87,21 @@ begin
     cam_x  <= cam_x_sig;
     cam_y  <= cam_y_sig;
 
-    -- Absolute value of vertical velocity.
+    -- Absolute values of both velocity axes.
+    abs_vel_x <= (not vel_x) + 1 when vel_x(9) = '1' else vel_x;
     abs_vel_y <= (not vel_y) + 1 when vel_y(9) = '1' else vel_y;
 
-    -- Thermometer-encode speed to a horizontal bar: each bit = one LED.
+    -- Thermometer-encode peak speed (max of |vx|,|vy|) → horizontal LED bar.
     -- n LEDs lit from LSB up → 0000011111 for n=5, 1111111111 for n=10.
-    vel_bar : process(abs_vel_y)
-        variable v : integer;
+    vel_bar : process(abs_vel_x, abs_vel_y)
+        variable vx, vy, vmax : integer;
         variable n : integer range 0 to 10;
     begin
-        v := CONV_INTEGER(abs_vel_y);
-        if v >= LED_FULL_VEL then n := 10;
-        else                      n := v * 10 / LED_FULL_VEL;
+        vx := CONV_INTEGER(abs_vel_x);
+        vy := CONV_INTEGER(abs_vel_y);
+        if vx > vy then vmax := vx; else vmax := vy; end if;
+        if vmax >= LED_FULL_VEL then n := 10;
+        else                         n := vmax * 10 / LED_FULL_VEL;
         end if;
         case n is
             when 0      => vel_out <= "0000000000";
@@ -148,7 +154,7 @@ begin
             vy := vy - 4;
         end if;
 
-        if key_s = '1' and on_ground = '0' then vy := vy + IMPULSE; end if;
+        if key_s = '1' and on_ground = '0' then vy := vy + SLAM_FORCE; end if;
 
         if key_a = '1' then
             if on_ground = '1' then vx := vx - IMPULSE; else vx := vx - 2; end if;
@@ -176,9 +182,9 @@ begin
         -- == CLAMP velocities ==
         if vx(9) = '0' and vx > MAX_VEL_X then vx := MAX_VEL_X; end if;
         if vx(9) = '1' and vx < (not MAX_VEL_X) + 1 then vx := (not MAX_VEL_X) + 1; end if;
-        if vy(9) = '0' and vy > 63 then vy := CONV_STD_LOGIC_VECTOR(63, 10); end if;
-        if vy(9) = '1' and vy < CONV_STD_LOGIC_VECTOR(960, 10) then
-            vy := CONV_STD_LOGIC_VECTOR(960, 10);
+        if vy(9) = '0' and vy > 127 then vy := CONV_STD_LOGIC_VECTOR(127, 10); end if;
+        if vy(9) = '1' and vy < CONV_STD_LOGIC_VECTOR(896, 10) then
+            vy := CONV_STD_LOGIC_VECTOR(896, 10);
         end if;
 
         -- == MOVE: sign-extend 10-bit velocity to 11-bit before adding ==
