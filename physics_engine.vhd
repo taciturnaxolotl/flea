@@ -7,14 +7,14 @@
 -- Bit-10 was wrong because GROUND(1480) and RIGHT_WALL(1492) both have
 -- bit 10 set (values >= 1024), causing false ceiling/wall triggers.
 --
--- Obstacles imported from level_pkg (use work.level_pkg.all).
+-- Obstacles imported from level package (use work.level.all).
 -- ========================================================================
 
 library IEEE;
 use IEEE.STD_LOGIC_1164.all;
 use IEEE.STD_LOGIC_ARITH.all;
 use IEEE.STD_LOGIC_UNSIGNED.all;
-use work.level_pkg.all;
+use work.level.all;
 
 entity physics_engine is
     port(
@@ -28,7 +28,8 @@ entity physics_engine is
         char_width  : out std_logic_vector(9 downto 0);
         char_height : out std_logic_vector(9 downto 0);
         cam_x       : out std_logic_vector(10 downto 0);
-        cam_y       : out std_logic_vector(10 downto 0)
+        cam_y       : out std_logic_vector(10 downto 0);
+        vel_out     : out std_logic_vector(9 downto 0)
     );
 end physics_engine;
 
@@ -62,11 +63,18 @@ architecture behavior of physics_engine is
     -- (Min case: CEILING(16) - max_upward(64) = -48 -> 11-bit unsigned = 2000.)
     constant UNDERFLOW  : std_logic_vector(10 downto 0) := CONV_STD_LOGIC_VECTOR(2000, 11);
 
+    -- Tune: vertical speed (0-63) at which all 10 LEDs are fully lit.
+    -- Lower  = more sensitive (fewer LEDs at low speed fill up faster).
+    -- Higher = less sensitive (need a harder bounce to light all LEDs).
+    constant LED_FULL_VEL : integer := 16;
+
     -- Animation
     signal squish       : std_logic_vector(3 downto 0) := (others => '0');
     signal squish_h     : std_logic := '0';
     signal on_ground    : std_logic := '0';
     signal jump_pressed : std_logic := '0';
+
+    signal abs_vel_y : std_logic_vector(9 downto 0);
 
 begin
 
@@ -74,6 +82,14 @@ begin
     char_y <= pos_y;
     cam_x  <= cam_x_sig;
     cam_y  <= cam_y_sig;
+
+    -- Absolute value of vertical velocity.
+    abs_vel_y <= (not vel_y) + 1 when vel_y(9) = '1' else vel_y;
+
+    -- Scale so LED_FULL_VEL maps to all 10 LEDs on (1023); clamp above that.
+    vel_out <= CONV_STD_LOGIC_VECTOR(1023, 10)
+               when CONV_INTEGER(abs_vel_y) >= LED_FULL_VEL else
+               CONV_STD_LOGIC_VECTOR(CONV_INTEGER(abs_vel_y) * 1023 / LED_FULL_VEL, 10);
 
     char_width  <= SIZE + ("000000" & squish)           when squish_h = '0'
               else SIZE - ("000000" & squish(3 downto 1));
