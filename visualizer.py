@@ -32,7 +32,7 @@ BOUNCE_SHIFT = 3  # energy loss = vel >> 3 (keep 87.5%)
 GROUND = 440
 CEILING = 16
 LEFT_WALL = 8
-RIGHT_WALL = 620
+RIGHT_WALL = 631
 GROUND_TOP = 448
 CEIL_BOT = 8
 
@@ -215,8 +215,8 @@ def main():
             vy = to_unsigned(svy)
 
         # --- Left wall bounce ---
-        if px <= LEFT_WALL:
-            px = LEFT_WALL
+        if px <= LEFT_WALL + SIZE:
+            px = LEFT_WALL + SIZE
             bounced = True; bounce_wall = True
             bounce_speed = abs(to_signed(vx))
             vx = negate(vx)
@@ -226,8 +226,8 @@ def main():
             vx = to_unsigned(svx)
 
         # --- Right wall bounce ---
-        if px >= RIGHT_WALL:
-            px = RIGHT_WALL
+        if px >= RIGHT_WALL - SIZE:
+            px = RIGHT_WALL - SIZE
             bounced = True; bounce_wall = True
             bounce_speed = abs(to_signed(vx))
             vx = negate(vx)

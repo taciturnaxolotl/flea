@@ -192,8 +192,9 @@ begin
         end if;
 
         -- == LEFT WALL ==
-        if px(9) = '1' or px <= LEFT_WALL then
-            px := LEFT_WALL;
+        -- Detect underflow: moving left (vx negative) but px wrapped to > pos_x
+        if (vx(9) = '1' and px > pos_x) or px <= LEFT_WALL + SIZE then
+            px := LEFT_WALL + SIZE;
             bounced := '1'; bounce_wall := '1';
             bounce_speed := (not vx) + 1;
             vx := (not vx) + 1;
@@ -203,8 +204,8 @@ begin
         end if;
 
         -- == RIGHT WALL ==
-        if px >= RIGHT_WALL then
-            px := RIGHT_WALL;
+        if px >= RIGHT_WALL - SIZE then
+            px := RIGHT_WALL - SIZE;
             bounced := '1'; bounce_wall := '1';
             bounce_speed := vx;
             vx := (not vx) + 1;
