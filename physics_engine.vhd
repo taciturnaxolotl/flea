@@ -65,8 +65,9 @@ architecture behavior of physics_engine is
 
     -- Tune: vertical speed (0-63) at which all 10 LEDs are fully lit.
     -- Lower  = more sensitive (fewer LEDs at low speed fill up faster).
+    -- Higher = better dynamic range across the full velocity range.
     -- Higher = less sensitive (need a harder bounce to light all LEDs).
-    constant LED_FULL_VEL : integer := 16;
+    constant LED_FULL_VEL : integer := 48;
 
     -- Animation
     signal squish       : std_logic_vector(3 downto 0) := (others => '0');
@@ -86,10 +87,30 @@ begin
     -- Absolute value of vertical velocity.
     abs_vel_y <= (not vel_y) + 1 when vel_y(9) = '1' else vel_y;
 
-    -- Scale so LED_FULL_VEL maps to all 10 LEDs on (1023); clamp above that.
-    vel_out <= CONV_STD_LOGIC_VECTOR(1023, 10)
-               when CONV_INTEGER(abs_vel_y) >= LED_FULL_VEL else
-               CONV_STD_LOGIC_VECTOR(CONV_INTEGER(abs_vel_y) * 1023 / LED_FULL_VEL, 10);
+    -- Thermometer-encode speed to a horizontal bar: each bit = one LED.
+    -- n LEDs lit from LSB up → 0000011111 for n=5, 1111111111 for n=10.
+    vel_bar : process(abs_vel_y)
+        variable v : integer;
+        variable n : integer range 0 to 10;
+    begin
+        v := CONV_INTEGER(abs_vel_y);
+        if v >= LED_FULL_VEL then n := 10;
+        else                      n := v * 10 / LED_FULL_VEL;
+        end if;
+        case n is
+            when 0      => vel_out <= "0000000000";
+            when 1      => vel_out <= "0000000001";
+            when 2      => vel_out <= "0000000011";
+            when 3      => vel_out <= "0000000111";
+            when 4      => vel_out <= "0000001111";
+            when 5      => vel_out <= "0000011111";
+            when 6      => vel_out <= "0000111111";
+            when 7      => vel_out <= "0001111111";
+            when 8      => vel_out <= "0011111111";
+            when 9      => vel_out <= "0111111111";
+            when others => vel_out <= "1111111111";
+        end case;
+    end process vel_bar;
 
     char_width  <= SIZE + ("000000" & squish)           when squish_h = '0'
               else SIZE - ("000000" & squish(3 downto 1));
