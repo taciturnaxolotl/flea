@@ -130,9 +130,9 @@ begin
         variable bounce_wall   : std_logic;
         variable bounce_speed  : std_logic_vector(9 downto 0);
         variable grounded      : std_logic;
-        variable c_left, c_right, c_top, c_bot : std_logic_vector(10 downto 0);
-        variable overlap_x, overlap_y           : std_logic_vector(10 downto 0);
-        variable tcx, tcy, dcx, dcy            : std_logic_vector(10 downto 0);
+        variable c_left, c_right, c_top, c_bot                     : std_logic_vector(10 downto 0);
+        variable c_prev_top, c_prev_bot, c_prev_left, c_prev_right : std_logic_vector(10 downto 0);
+        variable tcx, tcy, dcx, dcy                                : std_logic_vector(10 downto 0);
     begin
         wait until vert_sync'event and vert_sync = '1';
 
@@ -151,7 +151,7 @@ begin
         end if;
 
         if key_w = '1' and jump_pressed = '1' and on_ground = '1' then
-            vy := vy - 4;
+            vy := vy - JUMP_FORCE;
         end if;
 
         if key_s = '1' and on_ground = '0' then vy := vy + SLAM_FORCE; end if;
@@ -182,9 +182,9 @@ begin
         -- == CLAMP velocities ==
         if vx(9) = '0' and vx > MAX_VEL_X then vx := MAX_VEL_X; end if;
         if vx(9) = '1' and vx < (not MAX_VEL_X) + 1 then vx := (not MAX_VEL_X) + 1; end if;
-        if vy(9) = '0' and vy > 127 then vy := CONV_STD_LOGIC_VECTOR(127, 10); end if;
-        if vy(9) = '1' and vy < CONV_STD_LOGIC_VECTOR(896, 10) then
-            vy := CONV_STD_LOGIC_VECTOR(896, 10);
+        if vy(9) = '0' and vy > 80  then vy := CONV_STD_LOGIC_VECTOR(80,  10); end if;
+        if vy(9) = '1' and vy < CONV_STD_LOGIC_VECTOR(924, 10) then  -- 924 = -100
+            vy := CONV_STD_LOGIC_VECTOR(924, 10);
         end if;
 
         -- == MOVE: sign-extend 10-bit velocity to 11-bit before adding ==
@@ -244,7 +244,15 @@ begin
             end if;
         end if;
 
-        -- == OBSTACLE COLLISIONS (loop over level_pkg arrays) ==
+        -- == OBSTACLE COLLISIONS ==
+        -- Use previous-frame bounds to detect which face was entered.
+        -- This avoids the overlap-axis bug where a fast horizontal move into
+        -- a thin platform's side gets incorrectly resolved as a vertical hit.
+        c_prev_top   := pos_y - SIZE11;
+        c_prev_bot   := pos_y + SIZE11;
+        c_prev_left  := pos_x - SIZE11;
+        c_prev_right := pos_x + SIZE11;
+
         for obs_i in 0 to OBS_COUNT-1 loop
             c_left  := px - SIZE11;
             c_right := px + SIZE11;
@@ -254,15 +262,9 @@ begin
             if c_right >= OBS_L(obs_i) and c_left <= OBS_R(obs_i) and
                c_bot   >= OBS_T(obs_i) and c_top  <= OBS_B(obs_i) then
 
-                if vy(9) = '0' then overlap_y := c_bot   - OBS_T(obs_i);
-                else                 overlap_y := OBS_B(obs_i) - c_top;   end if;
-                if vx(9) = '0' then overlap_x := c_right - OBS_L(obs_i);
-                else                 overlap_x := OBS_R(obs_i) - c_left;  end if;
-
-                if overlap_y <= overlap_x then
-                    -- Vertical resolution
-                    if vy(9) = '0' then py := OBS_T(obs_i) - SIZE11; grounded := '1';
-                    else                 py := OBS_B(obs_i) + SIZE11; end if;
+                if c_prev_bot <= OBS_T(obs_i) then
+                    -- Entered from top → land on surface
+                    py := OBS_T(obs_i) - SIZE11;  grounded := '1';
                     bounced := '1';
                     vy := (not vy) + 1;
                     if vy(9) = '0' and vy > 1 then
@@ -274,16 +276,46 @@ begin
                     if vy(9) = '1' and vy >= CONV_STD_LOGIC_VECTOR(1022, 10) then
                         vy := (others => '0');
                     end if;
-                else
-                    -- Horizontal resolution
-                    if vx(9) = '0' then px := OBS_L(obs_i) - SIZE11;
-                    else                 px := OBS_R(obs_i) + SIZE11; end if;
+
+                elsif c_prev_top >= OBS_B(obs_i) then
+                    -- Entered from bottom → bump head on underside
+                    py := OBS_B(obs_i) + SIZE11;
+                    bounced := '1';
+                    vy := (not vy) + 1;
+                    if vy(9) = '0' and vy > 1 then
+                        vy := vy - ("000" & vy(9 downto 3));
+                    end if;
+
+                elsif c_prev_right <= OBS_L(obs_i) then
+                    -- Entered from left → bounce off left face
+                    px := OBS_L(obs_i) - SIZE11;
                     bounced := '1';  bounce_wall := '1';
                     vx := (not vx) + 1;
                     if vx(9) = '0' and vx > 1 then
                         vx := vx - ("000" & vx(9 downto 3));
                     elsif vx(9) = '1' and vx < CONV_STD_LOGIC_VECTOR(1022, 10) then
                         vx := vx + ("000" & ((not vx(9 downto 3)) + 1));
+                    end if;
+
+                elsif c_prev_left >= OBS_R(obs_i) then
+                    -- Entered from right → bounce off right face
+                    px := OBS_R(obs_i) + SIZE11;
+                    bounced := '1';  bounce_wall := '1';
+                    vx := (not vx) + 1;
+                    if vx(9) = '0' and vx > 1 then
+                        vx := vx - ("000" & vx(9 downto 3));
+                    elsif vx(9) = '1' and vx < CONV_STD_LOGIC_VECTOR(1022, 10) then
+                        vx := vx + ("000" & ((not vx(9 downto 3)) + 1));
+                    end if;
+
+                else
+                    -- Corner / spawn-inside fallback: resolve by velocity direction
+                    if vy(9) = '0' then py := OBS_T(obs_i) - SIZE11; grounded := '1';
+                    else                 py := OBS_B(obs_i) + SIZE11; end if;
+                    bounced := '1';
+                    vy := (not vy) + 1;
+                    if vy(9) = '0' and vy > 1 then
+                        vy := vy - ("000" & vy(9 downto 3));
                     end if;
                 end if;
             end if;
