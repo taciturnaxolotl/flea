@@ -105,6 +105,7 @@ begin
         variable grounded      : std_logic;
         variable c_left, c_right, c_top, c_bot : std_logic_vector(10 downto 0);
         variable overlap_x, overlap_y           : std_logic_vector(10 downto 0);
+        variable tcx, tcy, dcx, dcy            : std_logic_vector(10 downto 0);
     begin
         wait until vert_sync'event and vert_sync = '1';
 
@@ -142,7 +143,7 @@ begin
         if vx(9) = '0' then
             if vx > 0 then
                 if vx(9 downto 2) = "00000000" then vx := vx - 1;
-                else vx := vx - ("000" & vx(9 downto 3)); end if;
+                else vx := vx - ("00" & vx(9 downto 2)); end if;
             end if;
         else
             if vx /= "0000000000" then
@@ -267,23 +268,55 @@ begin
         pos_x <= px;
         pos_y <= py;
 
-        -- == CAMERA: center on character (px/py), clamp to world ==
-        -- cam_x = clamp(px - 320, 0, 860)   [1500 - 640 = 860]
+        -- == CAMERA: lag-follow character (1/8 of gap per frame, min 1px) ==
+        -- Compute clamped target
         if px < CONV_STD_LOGIC_VECTOR(320, 11) then
-            cam_x_sig <= (others => '0');
+            tcx := (others => '0');
         elsif px > CONV_STD_LOGIC_VECTOR(1180, 11) then
-            cam_x_sig <= CONV_STD_LOGIC_VECTOR(860, 11);
+            tcx := CONV_STD_LOGIC_VECTOR(860, 11);
         else
-            cam_x_sig <= px - CONV_STD_LOGIC_VECTOR(320, 11);
+            tcx := px - CONV_STD_LOGIC_VECTOR(320, 11);
         end if;
 
-        -- cam_y = clamp(py - 240, 0, 1020)  [1500 - 480 = 1020]
         if py < CONV_STD_LOGIC_VECTOR(240, 11) then
-            cam_y_sig <= (others => '0');
+            tcy := (others => '0');
         elsif py > CONV_STD_LOGIC_VECTOR(1260, 11) then
-            cam_y_sig <= CONV_STD_LOGIC_VECTOR(1020, 11);
+            tcy := CONV_STD_LOGIC_VECTOR(1020, 11);
         else
-            cam_y_sig <= py - CONV_STD_LOGIC_VECTOR(240, 11);
+            tcy := py - CONV_STD_LOGIC_VECTOR(240, 11);
+        end if;
+
+        -- Slide camera toward target
+        if cam_x_sig < tcx then
+            dcx := tcx - cam_x_sig;
+            if dcx(10 downto 3) = "00000000" then
+                cam_x_sig <= cam_x_sig + 1;
+            else
+                cam_x_sig <= cam_x_sig + ("000" & dcx(10 downto 3));
+            end if;
+        elsif cam_x_sig > tcx then
+            dcx := cam_x_sig - tcx;
+            if dcx(10 downto 3) = "00000000" then
+                cam_x_sig <= cam_x_sig - 1;
+            else
+                cam_x_sig <= cam_x_sig - ("000" & dcx(10 downto 3));
+            end if;
+        end if;
+
+        if cam_y_sig < tcy then
+            dcy := tcy - cam_y_sig;
+            if dcy(10 downto 3) = "00000000" then
+                cam_y_sig <= cam_y_sig + 1;
+            else
+                cam_y_sig <= cam_y_sig + ("000" & dcy(10 downto 3));
+            end if;
+        elsif cam_y_sig > tcy then
+            dcy := cam_y_sig - tcy;
+            if dcy(10 downto 3) = "00000000" then
+                cam_y_sig <= cam_y_sig - 1;
+            else
+                cam_y_sig <= cam_y_sig - ("000" & dcy(10 downto 3));
+            end if;
         end if;
 
         -- == SQUISH ==

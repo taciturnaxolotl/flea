@@ -3,7 +3,7 @@
 -- world_col = pixel_column + cam_x
 -- world_row = pixel_row    + cam_y
 -- All comparisons in world-space (11-bit).
--- Obstacles imported from level_pkg (use work.level_pkg.all).
+-- Obstacles imported from level package (use work.level.all).
 -- ========================================================================
 
 library IEEE;
