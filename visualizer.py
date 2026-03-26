@@ -22,6 +22,7 @@ FPS = 60
 # --- Physics constants (match VHDL exactly) ---
 GRAVITY = 1
 IMPULSE = 3
+SLAM_FORCE = 8
 AIR_CONTROL = 2
 JUMP_FORCE = 13
 MAX_VEL_X = 32
@@ -132,11 +133,11 @@ def main():
 
         # Holding W while bouncing: boost each ground contact
         if keys_held['w'] and jump_pressed and on_ground:
-            vy = (vy - 4) & MASK
+            vy = (vy - JUMP_FORCE) & MASK
 
         # S: slam (air only)
         if keys_held['s'] and not on_ground:
-            vy = (vy + IMPULSE) & MASK
+            vy = (vy + SLAM_FORCE) & MASK
 
         # A/D
         if keys_held['a']:
@@ -174,8 +175,8 @@ def main():
 
         # Clamp Y
         svy = to_signed(vy)
-        if svy > 63: svy = 63
-        elif svy < -64: svy = -64
+        if svy > 80: svy = 80
+        elif svy < -100: svy = -100
         vy = to_unsigned(svy)
 
         # Update position
@@ -236,7 +237,12 @@ def main():
                 svx += (-svx) >> BOUNCE_SHIFT
             vx = to_unsigned(svx)
 
-        # --- Obstacle collisions ---
+        # --- Obstacle collisions (entry-face detection using prev position) ---
+        prev_top   = char_y - SIZE
+        prev_bot   = char_y + SIZE
+        prev_left  = char_x - SIZE
+        prev_right = char_x + SIZE
+
         for (ol, ot, orr, ob) in OBSTACLES:
             c_left = px - SIZE
             c_right = px + SIZE
@@ -244,57 +250,59 @@ def main():
             c_bot = py + SIZE
 
             if c_right >= ol and c_left <= orr and c_bot >= ot and c_top <= ob:
-                # Compute overlap from velocity direction
-                svx_now = to_signed(vx)
-                svy_now = to_signed(vy)
-
-                if svx_now >= 0:
-                    overlap_x = c_right - ol
-                else:
-                    overlap_x = orr - c_left
-
-                if svy_now >= 0:
-                    overlap_y = c_bot - ot
-                else:
-                    overlap_y = ob - c_top
-
-                if overlap_y <= overlap_x:
-                    # Vertical resolution
-                    if svy_now >= 0:  # moving down
-                        py = ot - SIZE
-                        grounded = True
-                    else:  # moving up
-                        py = ob + SIZE
+                if prev_bot <= ot:
+                    # Entered from top
+                    py = ot - SIZE; grounded = True
                     bounced = True
-                    bounce_speed = abs(svy_now)
+                    bounce_speed = abs(to_signed(vy))
                     vy = negate(vy)
                     svy = to_signed(vy)
-                    # Energy loss on magnitude
                     if abs(svy) > 1:
-                        svy_abs = abs(svy)
-                        loss = svy_abs >> BOUNCE_SHIFT
-                        if svy > 0:
-                            svy -= loss
-                        else:
-                            svy += loss
-                    if abs(svy) < 2:
-                        svy = 0
+                        loss = abs(svy) >> BOUNCE_SHIFT
+                        svy = svy - loss if svy > 0 else svy + loss
+                    if abs(svy) < 2: svy = 0
                     vy = to_unsigned(svy)
-                else:
-                    # Horizontal resolution
-                    if svx_now >= 0:
-                        px = ol - SIZE
-                    else:
-                        px = orr + SIZE
+                elif prev_top >= ob:
+                    # Entered from bottom
+                    py = ob + SIZE
+                    bounced = True
+                    vy = negate(vy)
+                    svy = to_signed(vy)
+                    if svy > 1:
+                        svy -= svy >> BOUNCE_SHIFT
+                    vy = to_unsigned(svy)
+                elif prev_right <= ol:
+                    # Entered from left
+                    px = ol - SIZE
                     bounced = True; bounce_wall = True
-                    bounce_speed = abs(svx_now)
+                    bounce_speed = abs(to_signed(vx))
                     vx = negate(vx)
                     svx = to_signed(vx)
-                    if svx > 1:
-                        svx -= svx >> BOUNCE_SHIFT
-                    elif svx < -1:
-                        svx += (-svx) >> BOUNCE_SHIFT
+                    if svx > 1:      svx -= svx >> BOUNCE_SHIFT
+                    elif svx < -1:   svx += (-svx) >> BOUNCE_SHIFT
                     vx = to_unsigned(svx)
+                elif prev_left >= orr:
+                    # Entered from right
+                    px = orr + SIZE
+                    bounced = True; bounce_wall = True
+                    bounce_speed = abs(to_signed(vx))
+                    vx = negate(vx)
+                    svx = to_signed(vx)
+                    if svx > 1:      svx -= svx >> BOUNCE_SHIFT
+                    elif svx < -1:   svx += (-svx) >> BOUNCE_SHIFT
+                    vx = to_unsigned(svx)
+                else:
+                    # Corner/inside fallback
+                    svy_now = to_signed(vy)
+                    if svy_now >= 0: py = ot - SIZE; grounded = True
+                    else:            py = ob + SIZE
+                    bounced = True
+                    vy = negate(vy)
+                    svy = to_signed(vy)
+                    if abs(svy) > 1:
+                        loss = abs(svy) >> BOUNCE_SHIFT
+                        svy = svy - loss if svy > 0 else svy + loss
+                    vy = to_unsigned(svy)
 
         # Commit
         char_x = px
