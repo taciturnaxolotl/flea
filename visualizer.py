@@ -11,6 +11,7 @@ Usage:
     python3 visualizer.py
 """
 
+import math
 import pygame
 import sys
 
@@ -125,14 +126,13 @@ def main():
         if not keys_held['w']:
             jump_pressed = False
 
-        # First press on ground: full jump
+        # First press on ground: full jump (elif prevents double-apply on same frame)
         if keys_held['w'] and not jump_pressed and on_ground:
             vy = to_unsigned(0)
             vy = (vy - JUMP_FORCE) & MASK
             jump_pressed = True
-
-        # Holding W while bouncing: boost each ground contact
-        if keys_held['w'] and jump_pressed and on_ground:
+        elif keys_held['w'] and jump_pressed and on_ground:
+            # Holding W while bouncing: boost each ground contact
             vy = (vy - JUMP_FORCE) & MASK
 
         # S: slam (air only)
@@ -369,9 +369,23 @@ def main():
         pygame.draw.rect(screen, COLOR_CHAR,
                          (char_x - cw, char_y - ch, cw * 2, ch * 2))
 
-        # HUD
+        # Velocity vector arrow (scale: 2px per unit of velocity)
         svx = to_signed(vel_x)
         svy = to_signed(vel_y)
+        ARROW_SCALE = 2
+        ax = char_x + svx * ARROW_SCALE
+        ay = char_y + svy * ARROW_SCALE
+        if svx != 0 or svy != 0:
+            pygame.draw.line(screen, (255, 255, 255), (char_x, char_y), (ax, ay), 2)
+            # Arrowhead
+            angle = math.atan2(svy, svx)
+            head = 6
+            for side in (+0.5, -0.5):
+                hx = ax - head * math.cos(angle + side)
+                hy = ay - head * math.sin(angle + side)
+                pygame.draw.line(screen, (255, 255, 255), (ax, ay), (int(hx), int(hy)), 2)
+
+        # HUD
         info = [
             f"pos: ({char_x}, {char_y})  vel: ({svx}, {svy})",
             f"squish: {squish}  ground: {'yes' if on_ground else 'no'}",

@@ -29,7 +29,9 @@ entity physics_engine is
         char_height : out std_logic_vector(9 downto 0);
         cam_x       : out std_logic_vector(10 downto 0);
         cam_y       : out std_logic_vector(10 downto 0);
-        vel_out     : out std_logic_vector(9 downto 0)
+        vel_out     : out std_logic_vector(9 downto 0);
+        vel_x_out   : out std_logic_vector(9 downto 0);
+        vel_y_out   : out std_logic_vector(9 downto 0)
     );
 end physics_engine;
 
@@ -82,10 +84,12 @@ architecture behavior of physics_engine is
 
 begin
 
-    char_x <= pos_x;
-    char_y <= pos_y;
-    cam_x  <= cam_x_sig;
-    cam_y  <= cam_y_sig;
+    char_x    <= pos_x;
+    char_y    <= pos_y;
+    cam_x     <= cam_x_sig;
+    cam_y     <= cam_y_sig;
+    vel_x_out <= vel_x;
+    vel_y_out <= vel_y;
 
     -- Absolute values of both velocity axes.
     abs_vel_x <= (not vel_x) + 1 when vel_x(9) = '1' else vel_x;
