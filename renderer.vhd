@@ -26,8 +26,6 @@ entity renderer is
         char_height  : in  std_logic_vector(9 downto 0);
         cam_x        : in  std_logic_vector(10 downto 0);
         cam_y        : in  std_logic_vector(10 downto 0);
-        vel_x_in     : in  std_logic_vector(9 downto 0);
-        vel_y_in     : in  std_logic_vector(9 downto 0);
         trail_on_in  : in  std_logic;
         red          : out std_logic;
         green        : out std_logic;
@@ -48,7 +46,6 @@ architecture behavior of renderer is
     signal wr : std_logic_vector(10 downto 0);
 
     signal char_on, ground_on, wall_on, ceiling_on, obs_on : std_logic;
-    signal arrow_on : std_logic := '0';  -- disabled
 
 begin
 
@@ -90,17 +87,12 @@ begin
 
     end process render;
 
-    -- Velocity vector arrow disabled — arrow_on held '0' by signal initializer
-
     -- ----------------------------------------------------------------
     -- Color output with priority
     -- ----------------------------------------------------------------
-    color : process(char_on, ground_on, wall_on, ceiling_on,
-                    obs_on, arrow_on, trail_on_in)
+    color : process(char_on, ground_on, wall_on, ceiling_on, obs_on, trail_on_in)
     begin
-        if    arrow_on = '1' then
-            red <= '1'; green <= '1'; blue <= '1';  -- White
-        elsif char_on = '1' then
+        if    char_on = '1' then
             red <= '1'; green <= '0'; blue <= '0';  -- Red
         elsif obs_on = '1' then
             red <= '1'; green <= '1'; blue <= '0';  -- Yellow

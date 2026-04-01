@@ -301,18 +301,17 @@ begin
             c_top   := py - SIZE11;
             c_bot   := py + SIZE11;
 
-            -- Swept horizontal overlap: union of prev and new extents along motion axis
+            -- Swept overlap: edge-crossing checks (prev and new extents straddle the face)
             if vx(9) = '0' then
-                x_overlap := (c_right >= OBS_L(obs_i)) and (c_prev_left <= OBS_R(obs_i));
+                x_overlap := (c_right >= OBS_L(obs_i)) and (c_prev_right <= OBS_L(obs_i));
             else
-                x_overlap := (c_prev_right >= OBS_L(obs_i)) and (c_left <= OBS_R(obs_i));
+                x_overlap := (c_left <= OBS_R(obs_i)) and (c_prev_left >= OBS_R(obs_i));
             end if;
 
-            -- Swept vertical overlap
             if vy(9) = '0' then
-                y_overlap := (c_bot >= OBS_T(obs_i)) and (c_prev_top <= OBS_B(obs_i));
+                y_overlap := (c_bot >= OBS_T(obs_i)) and (c_prev_bot <= OBS_T(obs_i));
             else
-                y_overlap := (c_prev_bot >= OBS_T(obs_i)) and (c_top <= OBS_B(obs_i));
+                y_overlap := (c_top <= OBS_B(obs_i)) and (c_prev_top >= OBS_B(obs_i));
             end if;
 
             if x_overlap and y_overlap then

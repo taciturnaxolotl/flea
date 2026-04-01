@@ -249,13 +249,13 @@ def main():
             c_top  = py - SIZE;  c_bot   = py + SIZE
 
             if to_signed(vx) >= 0:
-                x_overlap = c_right >= ol and prev_left <= orr
+                x_overlap = c_right >= ol and prev_right <= ol
             else:
-                x_overlap = prev_right >= ol and c_left <= orr
+                x_overlap = c_left <= orr and prev_left >= orr
             if to_signed(vy) >= 0:
-                y_overlap = c_bot >= ot and prev_top <= ob
+                y_overlap = c_bot >= ot and prev_bot <= ot
             else:
-                y_overlap = prev_bot >= ot and c_top <= ob
+                y_overlap = c_top <= ob and prev_top >= ob
 
             if x_overlap and y_overlap:
                 if prev_bot <= ot:
