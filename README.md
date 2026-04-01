@@ -2,6 +2,8 @@
 
 bouncy fpga game
 
+![screenshot of quartus](./QuartusLayout.png)
+
 The canonical repo for this is hosted on tangled over at [`dunkirk.sh/flea`](https://tangled.org/dunkirk.sh/flea)
 
 <p align="center">
