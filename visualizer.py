@@ -23,7 +23,12 @@ FPS = 60
 # --- Physics constants (match VHDL exactly) ---
 GRAVITY = 1
 IMPULSE = 3
-SLAM_FORCE = 4
+SLAM_TAP_FORCE   = 18   # instant downward burst on S press in air
+SLAM_BOOST_CLOSE = 24   # upward boost on hold-slam landing, close range
+SLAM_BOOST_MED   = 16   # upward boost, medium range
+SLAM_BOOST_FAR   = 8    # upward boost, far range
+SLAM_CLOSE_THR   = 80   # pixels: "close to surface" threshold
+SLAM_MED_THR     = 200  # pixels: "medium distance" threshold
 AIR_CONTROL = 2
 JUMP_FORCE = 14         # initial jump force at zero velocity (scales down with |vel_y|)
 JUMP_VEL_SCALE = 12    # velocity magnitude at which initial jump force is halved
@@ -85,6 +90,9 @@ def main():
     squish_h = False  # False = vertical squish (floor/ceil), True = horizontal squish (walls)
     on_ground = False
     jump_pressed = False
+    slam_held = False
+    slam_start_y = 0
+    prev_key_s = False
 
     keys_held = {'w': False, 'a': False, 's': False, 'd': False}
     trail = []
@@ -108,6 +116,7 @@ def main():
                     char_x, char_y = 100, 200
                     vel_x = vel_y = to_unsigned(0)
                     squish = 0; squish_h = False; on_ground = False; jump_pressed = False
+                    slam_held = False; slam_start_y = 0; prev_key_s = False
                     trail.clear()
             elif event.type == pygame.KEYUP:
                 if event.key == pygame.K_w: keys_held['w'] = False
@@ -143,9 +152,14 @@ def main():
             # Holding W while bouncing: fixed boost so trampoline accumulates each contact
             vy = (vy - JUMP_BOUNCE) & MASK
 
-        # S: slam (air only)
-        if keys_held['s'] and not on_ground:
-            vy = (vy + SLAM_FORCE) & MASK
+        # S slam: rising edge in air = tap burst downward; hold to get landing boost
+        if keys_held['s'] and not prev_key_s and not on_ground:
+            slam_start_y = char_y
+            slam_held = True
+            vy = (vy + SLAM_TAP_FORCE) & MASK
+        if not keys_held['s']:
+            slam_held = False
+        prev_key_s = keys_held['s']
 
         # A/D
         if keys_held['a']:
@@ -311,6 +325,18 @@ def main():
                         loss = abs(svy) >> BOUNCE_SHIFT
                         svy = svy - loss if svy > 0 else svy + loss
                     vy = to_unsigned(svy)
+
+        # Hold-slam landing boost: bigger boost when slam started closer to the surface
+        if grounded and slam_held:
+            dist = py - slam_start_y
+            if dist < SLAM_CLOSE_THR:
+                slam_boost_val = SLAM_BOOST_CLOSE
+            elif dist < SLAM_MED_THR:
+                slam_boost_val = SLAM_BOOST_MED
+            else:
+                slam_boost_val = SLAM_BOOST_FAR
+            vy = (vy - slam_boost_val) & MASK
+            slam_held = False
 
         # Commit
         char_x = px

@@ -52,7 +52,12 @@ architecture behavior of physics_engine is
     -- Physics tuning
     constant GRAVITY    : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(1,  10);
     constant IMPULSE    : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(3,  10);
-    constant SLAM_FORCE     : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(4,  10);
+    constant SLAM_TAP_FORCE   : std_logic_vector(9 downto 0)  := CONV_STD_LOGIC_VECTOR(18,  10);
+    constant SLAM_BOOST_CLOSE : std_logic_vector(9 downto 0)  := CONV_STD_LOGIC_VECTOR(24,  10);
+    constant SLAM_BOOST_MED   : std_logic_vector(9 downto 0)  := CONV_STD_LOGIC_VECTOR(16,  10);
+    constant SLAM_BOOST_FAR   : std_logic_vector(9 downto 0)  := CONV_STD_LOGIC_VECTOR(8,   10);
+    constant SLAM_CLOSE_THR   : std_logic_vector(10 downto 0) := CONV_STD_LOGIC_VECTOR(270, 11);
+    constant SLAM_MED_THR     : std_logic_vector(10 downto 0) := CONV_STD_LOGIC_VECTOR(660, 11);
     -- Initial jump: full force at zero velocity, tapers off as |vel_y| rises.
     -- Piecewise lookup approximates: max(JUMP_MIN, JUMP_BASE*JUMP_SCALE/(JUMP_SCALE+|vy|))
     constant JUMP_BASE      : integer := 14;  -- force at zero velocity
@@ -87,6 +92,9 @@ architecture behavior of physics_engine is
     signal squish_h     : std_logic := '0';
     signal on_ground    : std_logic := '0';
     signal jump_pressed : std_logic := '0';
+    signal slam_held    : std_logic := '0';
+    signal slam_start_y : std_logic_vector(10 downto 0) := (others => '0');
+    signal prev_key_s   : std_logic := '0';
 
     signal abs_vel_x : std_logic_vector(9 downto 0);
     signal abs_vel_y : std_logic_vector(9 downto 0);
@@ -149,6 +157,8 @@ begin
         variable abs_vy_int    : integer;
         variable jforce_int    : integer;
         variable jforce_slv    : std_logic_vector(9 downto 0);
+        variable slam_dist     : std_logic_vector(10 downto 0);
+        variable slam_boost    : std_logic_vector(9 downto 0);
     begin
         wait until vert_sync'event and vert_sync = '1';
 
@@ -180,7 +190,14 @@ begin
             vy := vy - JUMP_BOUNCE;
         end if;
 
-        if key_s = '1' and on_ground = '0' then vy := vy + SLAM_FORCE; end if;
+        -- S slam: rising edge in air = tap burst downward; hold to get landing boost
+        if key_s = '1' and prev_key_s = '0' and on_ground = '0' then
+            slam_start_y <= pos_y;
+            slam_held    <= '1';
+            vy := vy + SLAM_TAP_FORCE;
+        end if;
+        if key_s = '0' then slam_held <= '0'; end if;
+        prev_key_s <= key_s;
 
         if key_a = '1' then
             if on_ground = '1' then vx := vx - IMPULSE; else vx := vx - 2; end if;
@@ -346,6 +363,21 @@ begin
                 end if;
             end if;
         end loop;
+
+        -- == HOLD-SLAM LANDING BOOST ==
+        -- Bigger boost when slam started closer to the surface
+        if grounded = '1' and slam_held = '1' then
+            slam_dist := py - slam_start_y;
+            if slam_dist < SLAM_CLOSE_THR then
+                slam_boost := SLAM_BOOST_CLOSE;
+            elsif slam_dist < SLAM_MED_THR then
+                slam_boost := SLAM_BOOST_MED;
+            else
+                slam_boost := SLAM_BOOST_FAR;
+            end if;
+            vy := vy - slam_boost;
+            slam_held <= '0';
+        end if;
 
         -- == COMMIT ==
         vel_x <= vx;
