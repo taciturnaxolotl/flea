@@ -23,9 +23,11 @@ FPS = 60
 # --- Physics constants (match VHDL exactly) ---
 GRAVITY = 1
 IMPULSE = 3
-SLAM_FORCE = 8
+SLAM_FORCE = 4
 AIR_CONTROL = 2
-JUMP_FORCE = 13
+JUMP_FORCE = 6          # base jump force at zero velocity
+JUMP_VEL_SCALE = 12    # velocity magnitude at which jump force is halved
+JUMP_MIN_FORCE = 2     # floor: minimum jump force regardless of velocity
 MAX_VEL_X = 32
 SIZE = 7
 BOUNCE_SHIFT = 3  # energy loss = vel >> 3 (keep 87.5%)
@@ -126,14 +128,20 @@ def main():
         if not keys_held['w']:
             jump_pressed = False
 
+        # Compute scaled jump force: full force at zero velocity, tapers off as speed rises
+        def scaled_jump():
+            speed = abs(to_signed(vel_y))
+            force = JUMP_FORCE * JUMP_VEL_SCALE / (JUMP_VEL_SCALE + speed)
+            return max(int(force), JUMP_MIN_FORCE)
+
         # First press on ground: full jump (elif prevents double-apply on same frame)
         if keys_held['w'] and not jump_pressed and on_ground:
             vy = to_unsigned(0)
-            vy = (vy - JUMP_FORCE) & MASK
+            vy = (vy - scaled_jump()) & MASK
             jump_pressed = True
         elif keys_held['w'] and jump_pressed and on_ground:
             # Holding W while bouncing: boost each ground contact
-            vy = (vy - JUMP_FORCE) & MASK
+            vy = (vy - scaled_jump()) & MASK
 
         # S: slam (air only)
         if keys_held['s'] and not on_ground:
@@ -352,10 +360,10 @@ def main():
         if show_trail and len(trail) > 1:
             for i, (tx, ty) in enumerate(trail):
                 alpha = int(80 * i / len(trail))
-                s = pygame.Surface((3, 3))
+                s = pygame.Surface((1, 1))
                 s.set_alpha(alpha)
                 s.fill((255, 100, 100))
-                screen.blit(s, (tx - 1, ty - 1))
+                screen.blit(s, (tx, ty))
 
         # Character with squish
         # Vertical squish (floor/ceil): wider + shorter

@@ -52,8 +52,14 @@ architecture behavior of physics_engine is
     -- Physics tuning
     constant GRAVITY    : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(1,  10);
     constant IMPULSE    : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(3,  10);
-    constant SLAM_FORCE : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(8,  10);
-    constant JUMP_FORCE : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(13, 10);
+    constant SLAM_FORCE     : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(4, 10);
+    -- Jump: base force at zero velocity, tapers off as |vel_y| rises.
+    -- Piecewise lookup approximates: max(JUMP_MIN, JUMP_BASE*JUMP_SCALE/(JUMP_SCALE+|vy|))
+    constant JUMP_BASE      : integer := 6;   -- force at zero velocity
+    constant JUMP_VEL_THR1  : integer := 3;   -- |vy| <= 3  → force 6
+    constant JUMP_VEL_THR2  : integer := 8;   -- |vy| <= 8  → force 4
+    constant JUMP_VEL_THR3  : integer := 16;  -- |vy| <= 16 → force 3
+    constant JUMP_MIN_FORCE : integer := 2;   -- floor at high velocity
     constant MAX_VEL_X  : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(32, 10);
 
     -- World bounds (11-bit)
@@ -128,7 +134,7 @@ begin
               else SIZE + ("000000" & squish);
 
     physics : process
-        variable vx, vy       : std_logic_vector(9 downto 0);
+        variable vx, vy        : std_logic_vector(9 downto 0);
         variable px, py        : std_logic_vector(10 downto 0);
         variable bounced       : std_logic;
         variable bounce_wall   : std_logic;
@@ -137,6 +143,9 @@ begin
         variable c_left, c_right, c_top, c_bot                     : std_logic_vector(10 downto 0);
         variable c_prev_top, c_prev_bot, c_prev_left, c_prev_right : std_logic_vector(10 downto 0);
         variable tcx, tcy, dcx, dcy                                : std_logic_vector(10 downto 0);
+        variable abs_vy_int    : integer;
+        variable jforce_int    : integer;
+        variable jforce_slv    : std_logic_vector(9 downto 0);
     begin
         wait until vert_sync'event and vert_sync = '1';
 
@@ -148,14 +157,24 @@ begin
         -- == INPUT ==
         if key_w = '0' then jump_pressed <= '0'; end if;
 
+        -- Scaled jump: full force at low velocity, tapers as |vy| increases
+        if vy(9) = '1' then abs_vy_int := CONV_INTEGER((not vy) + 1);
+        else abs_vy_int := CONV_INTEGER(vy); end if;
+        if    abs_vy_int <= JUMP_VEL_THR1 then jforce_int := JUMP_BASE;
+        elsif abs_vy_int <= JUMP_VEL_THR2 then jforce_int := 4;
+        elsif abs_vy_int <= JUMP_VEL_THR3 then jforce_int := 3;
+        else                                   jforce_int := JUMP_MIN_FORCE;
+        end if;
+        jforce_slv := CONV_STD_LOGIC_VECTOR(jforce_int, 10);
+
         if key_w = '1' and jump_pressed = '0' and on_ground = '1' then
             vy := (others => '0');
-            vy := vy - JUMP_FORCE;
+            vy := vy - jforce_slv;
             jump_pressed <= '1';
         end if;
 
         if key_w = '1' and jump_pressed = '1' and on_ground = '1' then
-            vy := vy - JUMP_FORCE;
+            vy := vy - jforce_slv;
         end if;
 
         if key_s = '1' and on_ground = '0' then vy := vy + SLAM_FORCE; end if;
