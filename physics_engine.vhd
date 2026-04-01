@@ -301,11 +301,11 @@ begin
             c_top   := py - SIZE11;
             c_bot   := py + SIZE11;
 
-            -- Swept overlap
+            -- Swept overlap: strict on "was on correct side" to prevent wall sticking
             if vx(9) = '0' then
-                x_overlap := (c_right >= OBS_L(obs_i)) and (c_prev_left <= OBS_R(obs_i));
+                x_overlap := (c_right >= OBS_L(obs_i)) and (c_prev_left < OBS_R(obs_i));
             else
-                x_overlap := (c_prev_right >= OBS_L(obs_i)) and (c_left <= OBS_R(obs_i));
+                x_overlap := (c_prev_right > OBS_L(obs_i)) and (c_left <= OBS_R(obs_i));
             end if;
 
             -- Strict y: exclude characters at/below bottom face (down) or at/above top face (up)
@@ -317,7 +317,7 @@ begin
 
             if x_overlap and y_overlap then
 
-                if c_prev_bot <= OBS_T(obs_i) then
+                if c_prev_bot <= OBS_T(obs_i) + SIZE11 and vy(9) = '0' then
                     py := OBS_T(obs_i) - SIZE11;  grounded := '1';
                     bounced := '1';
                     vy := (not vy) + 1;
@@ -339,7 +339,7 @@ begin
                         vy := vy - ("000" & vy(9 downto 3));
                     end if;
 
-                elsif c_prev_right <= OBS_L(obs_i) then
+                elsif c_prev_right <= OBS_L(obs_i) and vx(9) = '0' then
                     px := OBS_L(obs_i) - SIZE11;
                     bounced := '1';  bounce_wall := '1';
                     vx := (not vx) + 1;
@@ -349,7 +349,7 @@ begin
                         vx := vx + ("000" & ((not vx(9 downto 3)) + 1));
                     end if;
 
-                elsif c_prev_left >= OBS_R(obs_i) then
+                elsif c_prev_left >= OBS_R(obs_i) and vx(9) = '1' then
                     px := OBS_R(obs_i) + SIZE11;
                     bounced := '1';  bounce_wall := '1';
                     vx := (not vx) + 1;

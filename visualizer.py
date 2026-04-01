@@ -249,16 +249,16 @@ def main():
             c_top  = py - SIZE;  c_bot   = py + SIZE
 
             if to_signed(vx) >= 0:
-                x_overlap = c_right >= ol and prev_left <= orr
+                x_overlap = c_right >= ol and prev_left < orr
             else:
-                x_overlap = prev_right >= ol and c_left <= orr
+                x_overlap = prev_right > ol and c_left <= orr
             if to_signed(vy) >= 0:
                 y_overlap = c_bot >= ot and prev_top < ob
             else:
                 y_overlap = prev_bot > ot and c_top <= ob
 
             if x_overlap and y_overlap:
-                if prev_bot <= ot:
+                if prev_bot <= ot + SIZE and to_signed(vy) >= 0:
                     py = ot - SIZE; grounded = True
                     bounced = True
                     bounce_speed = abs(to_signed(vy))
@@ -277,7 +277,7 @@ def main():
                     if svy > 1:
                         svy -= svy >> BOUNCE_SHIFT
                     vy = to_unsigned(svy)
-                elif prev_right <= ol:
+                elif prev_right <= ol and to_signed(vx) >= 0:
                     px = ol - SIZE
                     bounced = True; bounce_wall = True
                     bounce_speed = abs(to_signed(vx))
@@ -286,7 +286,7 @@ def main():
                     if svx > 1:    svx -= svx >> BOUNCE_SHIFT
                     elif svx < -1: svx += (-svx) >> BOUNCE_SHIFT
                     vx = to_unsigned(svx)
-                elif prev_left >= orr:
+                elif prev_left >= orr and to_signed(vx) < 0:
                     px = orr + SIZE
                     bounced = True; bounce_wall = True
                     bounce_speed = abs(to_signed(vx))
