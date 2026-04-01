@@ -25,9 +25,10 @@ GRAVITY = 1
 IMPULSE = 3
 SLAM_FORCE = 4
 AIR_CONTROL = 2
-JUMP_FORCE = 6          # base jump force at zero velocity
-JUMP_VEL_SCALE = 12    # velocity magnitude at which jump force is halved
-JUMP_MIN_FORCE = 2     # floor: minimum jump force regardless of velocity
+JUMP_FORCE = 14         # initial jump force at zero velocity (scales down with |vel_y|)
+JUMP_VEL_SCALE = 12    # velocity magnitude at which initial jump force is halved
+JUMP_MIN_FORCE = 4     # floor for inverse-scaled initial jump
+JUMP_BOUNCE = 6        # fixed additive boost on each ground contact while W held (trampoline)
 MAX_VEL_X = 32
 SIZE = 7
 BOUNCE_SHIFT = 3  # energy loss = vel >> 3 (keep 87.5%)
@@ -140,8 +141,8 @@ def main():
             vy = (vy - scaled_jump()) & MASK
             jump_pressed = True
         elif keys_held['w'] and jump_pressed and on_ground:
-            # Holding W while bouncing: boost each ground contact
-            vy = (vy - scaled_jump()) & MASK
+            # Holding W while bouncing: fixed boost so trampoline accumulates each contact
+            vy = (vy - JUMP_BOUNCE) & MASK
 
         # S: slam (air only)
         if keys_held['s'] and not on_ground:

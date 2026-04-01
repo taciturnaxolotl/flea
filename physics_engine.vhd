@@ -52,14 +52,17 @@ architecture behavior of physics_engine is
     -- Physics tuning
     constant GRAVITY    : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(1,  10);
     constant IMPULSE    : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(3,  10);
-    constant SLAM_FORCE     : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(4, 10);
-    -- Jump: base force at zero velocity, tapers off as |vel_y| rises.
+    constant SLAM_FORCE     : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(4,  10);
+    -- Initial jump: full force at zero velocity, tapers off as |vel_y| rises.
     -- Piecewise lookup approximates: max(JUMP_MIN, JUMP_BASE*JUMP_SCALE/(JUMP_SCALE+|vy|))
-    constant JUMP_BASE      : integer := 6;   -- force at zero velocity
-    constant JUMP_VEL_THR1  : integer := 3;   -- |vy| <= 3  → force 6
-    constant JUMP_VEL_THR2  : integer := 8;   -- |vy| <= 8  → force 4
-    constant JUMP_VEL_THR3  : integer := 16;  -- |vy| <= 16 → force 3
-    constant JUMP_MIN_FORCE : integer := 2;   -- floor at high velocity
+    constant JUMP_BASE      : integer := 14;  -- force at zero velocity
+    constant JUMP_VEL_THR1  : integer := 3;   -- |vy| <= 3  → force 14
+    constant JUMP_VEL_THR2  : integer := 10;  -- |vy| <= 10 → force 8
+    constant JUMP_VEL_THR3  : integer := 20;  -- |vy| <= 20 → force 6
+    constant JUMP_MIN_FORCE : integer := 4;   -- floor at high velocity
+    -- Trampoline: fixed additive boost on each ground contact while W held.
+    -- No inverse scaling so energy accumulates each bounce.
+    constant JUMP_BOUNCE    : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(6,  10);
     constant MAX_VEL_X  : std_logic_vector(9 downto 0) := CONV_STD_LOGIC_VECTOR(32, 10);
 
     -- World bounds (11-bit)
@@ -157,12 +160,12 @@ begin
         -- == INPUT ==
         if key_w = '0' then jump_pressed <= '0'; end if;
 
-        -- Scaled jump: full force at low velocity, tapers as |vy| increases
+        -- Initial jump: force tapers as |vy| increases (inverse scaling)
         if vy(9) = '1' then abs_vy_int := CONV_INTEGER((not vy) + 1);
         else abs_vy_int := CONV_INTEGER(vy); end if;
         if    abs_vy_int <= JUMP_VEL_THR1 then jforce_int := JUMP_BASE;
-        elsif abs_vy_int <= JUMP_VEL_THR2 then jforce_int := 4;
-        elsif abs_vy_int <= JUMP_VEL_THR3 then jforce_int := 3;
+        elsif abs_vy_int <= JUMP_VEL_THR2 then jforce_int := 8;
+        elsif abs_vy_int <= JUMP_VEL_THR3 then jforce_int := 6;
         else                                   jforce_int := JUMP_MIN_FORCE;
         end if;
         jforce_slv := CONV_STD_LOGIC_VECTOR(jforce_int, 10);
@@ -173,8 +176,9 @@ begin
             jump_pressed <= '1';
         end if;
 
+        -- Trampoline: fixed boost (no inverse scaling) so energy accumulates each bounce
         if key_w = '1' and jump_pressed = '1' and on_ground = '1' then
-            vy := vy - jforce_slv;
+            vy := vy - JUMP_BOUNCE;
         end if;
 
         if key_s = '1' and on_ground = '0' then vy := vy + SLAM_FORCE; end if;
