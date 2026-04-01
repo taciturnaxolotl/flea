@@ -47,7 +47,8 @@ architecture behavior of renderer is
     signal wc : std_logic_vector(10 downto 0);
     signal wr : std_logic_vector(10 downto 0);
 
-    signal char_on, ground_on, wall_on, ceiling_on, obs_on, arrow_on : std_logic;
+    signal char_on, ground_on, wall_on, ceiling_on, obs_on : std_logic;
+    signal arrow_on : std_logic := '0';  -- disabled
 
 begin
 
@@ -89,56 +90,7 @@ begin
 
     end process render;
 
-    -- ----------------------------------------------------------------
-    -- Velocity vector arrow
-    -- Line from (char_x, char_y) to (char_x + 3*vx, char_y + 3*vy).
-    -- Uses cross-product line-segment test:
-    --   pixel on segment iff |dy*(px-x0) - dx*(py-y0)| <= max(|dx|,|dy|)
-    --                    and  dx*(px-x0) + dy*(py-y0)  in [0, dx^2+dy^2]
-    -- ----------------------------------------------------------------
-    arrow_proc : process(wc, wr, char_x, char_y, vel_x_in, vel_y_in)
-        variable wci, wri   : integer;
-        variable cx, cy     : integer;
-        variable vxi, vyi   : integer;
-        variable dx, dy     : integer;
-        variable cross      : integer;
-        variable dot_p      : integer;
-        variable len_sq     : integer;
-        variable maxd       : integer;
-    begin
-        wci := CONV_INTEGER(wc);
-        wri := CONV_INTEGER(wr);
-        cx  := CONV_INTEGER(char_x);
-        cy  := CONV_INTEGER(char_y);
-
-        -- Convert 10-bit 2's complement velocity to signed integer
-        if vel_x_in(9) = '1' then vxi := CONV_INTEGER(vel_x_in) - 1024;
-        else                       vxi := CONV_INTEGER(vel_x_in); end if;
-        if vel_y_in(9) = '1' then vyi := CONV_INTEGER(vel_y_in) - 1024;
-        else                       vyi := CONV_INTEGER(vel_y_in); end if;
-
-        -- Scale arrow by 3 for visibility
-        dx := vxi * 3;
-        dy := vyi * 3;
-
-        -- Precompute line metrics
-        cross  := dy * (wci - cx) - dx * (wri - cy);
-        dot_p  := dx * (wci - cx) + dy * (wri - cy);
-        len_sq := dx * dx + dy * dy;
-
-        -- Chebyshev thickness (~1-2 world-pixels wide)
-        maxd := dx; if maxd < 0 then maxd := -maxd; end if;
-        if  dy > maxd then maxd :=  dy;
-        elsif -dy > maxd then maxd := -dy; end if;
-
-        arrow_on <= '0';
-        if maxd > 4 then  -- skip arrow when velocity is negligible
-            if cross >= -maxd and cross <= maxd and
-               dot_p >= 0     and dot_p <= len_sq then
-                arrow_on <= '1';
-            end if;
-        end if;
-    end process arrow_proc;
+    -- Velocity vector arrow disabled — arrow_on held '0' by signal initializer
 
     -- ----------------------------------------------------------------
     -- Color output with priority

@@ -331,7 +331,7 @@ begin
                         vy := (others => '0');
                     end if;
 
-                elsif c_prev_top >= OBS_B(obs_i) then
+                elsif c_prev_top >= OBS_B(obs_i) and vy(9) = '1' then
                     py := OBS_B(obs_i) + SIZE11;
                     bounced := '1';
                     vy := (not vy) + 1;

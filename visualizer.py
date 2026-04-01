@@ -98,6 +98,7 @@ def main():
     keys_held = {'w': False, 'a': False, 's': False, 'd': False}
     trail = []
     show_trail = True
+    show_vector = False
     font = pygame.font.SysFont("monospace", 14)
 
     running = True
@@ -113,6 +114,8 @@ def main():
                 elif event.key == pygame.K_q: running = False
                 elif event.key == pygame.K_t:
                     show_trail = not show_trail; trail.clear()
+                elif event.key == pygame.K_v:
+                    show_vector = not show_vector
                 elif event.key == pygame.K_r:
                     char_x, char_y = 100, 200
                     vel_x = vel_y = to_unsigned(0)
@@ -266,7 +269,7 @@ def main():
                         svy = svy - loss if svy > 0 else svy + loss
                     if abs(svy) < 2: svy = 0
                     vy = to_unsigned(svy)
-                elif prev_top >= ob:
+                elif prev_top >= ob and to_signed(vy) < 0:
                     py = ob + SIZE
                     bounced = True
                     vy = negate(vy)
@@ -412,12 +415,11 @@ def main():
         # Velocity vector arrow (scale: 2px per unit of velocity)
         svx = to_signed(vel_x)
         svy = to_signed(vel_y)
-        ARROW_SCALE = 2
-        ax = char_x + svx * ARROW_SCALE
-        ay = char_y + svy * ARROW_SCALE
-        if svx != 0 or svy != 0:
+        if show_vector and (svx != 0 or svy != 0):
+            ARROW_SCALE = 2
+            ax = char_x + svx * ARROW_SCALE
+            ay = char_y + svy * ARROW_SCALE
             pygame.draw.line(screen, (255, 255, 255), (char_x, char_y), (ax, ay), 2)
-            # Arrowhead
             angle = math.atan2(svy, svx)
             head = 6
             for side in (+0.5, -0.5):
@@ -430,7 +432,7 @@ def main():
             f"pos: ({char_x}, {char_y})  vel: ({svx}, {svy})",
             f"squish: {squish}  ground: {'yes' if on_ground else 'no'}",
             "",
-            "WASD: move/jump   R: reset   T: trail   Q: quit",
+            "WASD: move/jump   R: reset   T: trail   V: vector   Q: quit",
         ]
         for i, line in enumerate(info):
             surf = font.render(line, True, (255, 255, 255))
