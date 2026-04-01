@@ -148,9 +148,7 @@ begin
         variable vx, vy        : std_logic_vector(9 downto 0);
         variable px, py        : std_logic_vector(10 downto 0);
         variable bounced       : std_logic;
-        variable bounce_wall   : std_logic;
-        variable bounce_speed  : std_logic_vector(9 downto 0);
-        variable grounded      : std_logic;
+        variable bounce_wall  : std_logic;
         variable c_left, c_right, c_top, c_bot                     : std_logic_vector(10 downto 0);
         variable c_prev_top, c_prev_bot, c_prev_left, c_prev_right : std_logic_vector(10 downto 0);
         variable tcx, tcy, dcx, dcy                                : std_logic_vector(10 downto 0);
@@ -302,8 +300,22 @@ begin
             c_top   := py - SIZE11;
             c_bot   := py + SIZE11;
 
-            if c_right >= OBS_L(obs_i) and c_left <= OBS_R(obs_i) and
-               c_bot   >= OBS_T(obs_i) and c_top  <= OBS_B(obs_i) then
+            -- 1. Swept Horizontal Overlap
+            if vx(9) = '0' then -- moving right
+                x_overlap := (c_right >= OBS_L(obs_i)) and (c_prev_left <= OBS_R(obs_i));
+            else                -- moving left
+                x_overlap := (c_prev_right >= OBS_L(obs_i)) and (c_left <= OBS_R(obs_i));
+            end if;
+
+            -- 2. Swept Vertical Overlap
+            if vy(9) = '0' then -- moving down (gravity is positive)
+                y_overlap := (c_bot >= OBS_T(obs_i)) and (c_prev_top <= OBS_B(obs_i));
+            else                -- moving up
+                y_overlap := (c_prev_bot >= OBS_T(obs_i)) and (c_top <= OBS_B(obs_i));
+            end if;
+
+            -- 3. Check collision using the swept bounds
+            if x_overlap and y_overlap then
 
                 if c_prev_bot <= OBS_T(obs_i) then
                     -- Entered from top → land on surface
