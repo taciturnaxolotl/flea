@@ -137,7 +137,6 @@ def main():
 
         # First press on ground: full jump (elif prevents double-apply on same frame)
         if keys_held['w'] and not jump_pressed and on_ground:
-            vy = to_unsigned(0)
             vy = (vy - scaled_jump()) & MASK
             jump_pressed = True
         elif keys_held['w'] and jump_pressed and on_ground:

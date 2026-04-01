@@ -171,7 +171,6 @@ begin
         jforce_slv := CONV_STD_LOGIC_VECTOR(jforce_int, 10);
 
         if key_w = '1' and jump_pressed = '0' and on_ground = '1' then
-            vy := (others => '0');
             vy := vy - jforce_slv;
             jump_pressed <= '1';
         end if;
