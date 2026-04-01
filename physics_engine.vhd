@@ -148,7 +148,9 @@ begin
         variable vx, vy        : std_logic_vector(9 downto 0);
         variable px, py        : std_logic_vector(10 downto 0);
         variable bounced       : std_logic;
-        variable bounce_wall  : std_logic;
+        variable bounce_wall   : std_logic;
+        variable bounce_speed  : std_logic_vector(9 downto 0);
+        variable grounded      : std_logic;
         variable c_left, c_right, c_top, c_bot                     : std_logic_vector(10 downto 0);
         variable c_prev_top, c_prev_bot, c_prev_left, c_prev_right : std_logic_vector(10 downto 0);
         variable tcx, tcy, dcx, dcy                                : std_logic_vector(10 downto 0);
