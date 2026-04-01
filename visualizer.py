@@ -91,6 +91,7 @@ def main():
     on_ground = False
     jump_pressed = False
     slam_held = False
+    slam_tap = False     # S pressed and released before landing — suppress bounce
     slam_start_y = 0
     prev_key_s = False
 
@@ -116,7 +117,7 @@ def main():
                     char_x, char_y = 100, 200
                     vel_x = vel_y = to_unsigned(0)
                     squish = 0; squish_h = False; on_ground = False; jump_pressed = False
-                    slam_held = False; slam_start_y = 0; prev_key_s = False
+                    slam_held = False; slam_tap = False; slam_start_y = 0; prev_key_s = False
                     trail.clear()
             elif event.type == pygame.KEYUP:
                 if event.key == pygame.K_w: keys_held['w'] = False
@@ -156,8 +157,10 @@ def main():
         if keys_held['s'] and not prev_key_s and not on_ground:
             slam_start_y = char_y
             slam_held = True
+            slam_tap = True
             vy = (vy + SLAM_TAP_FORCE) & MASK
-        if not keys_held['s']:
+        if not keys_held['s'] and slam_held:
+            # S released before landing — mark as tap, no hold boost
             slam_held = False
         prev_key_s = keys_held['s']
 
@@ -208,15 +211,12 @@ def main():
         # --- Ground bounce ---
         if py >= GROUND:
             py = GROUND
-            bounced = True
-            grounded = True
+            bounced = True; grounded = True
             bounce_speed = abs(to_signed(vy))
             vy = negate(vy)
             svy = to_signed(vy)
-            # svy is now negative (upward), apply energy loss on magnitude
             if svy < -1:
-                svy += (-svy) >> BOUNCE_SHIFT  # reduce magnitude
-            # Kill tiny bounces
+                svy += (-svy) >> BOUNCE_SHIFT
             if abs(svy) < 2:
                 svy = 0
             vy = to_unsigned(svy)
@@ -231,11 +231,78 @@ def main():
             if abs(svy) > 1:
                 svy_abs = abs(svy)
                 loss = svy_abs >> BOUNCE_SHIFT
-                if svy > 0:
-                    svy -= loss
-                else:
-                    svy += loss
+                if svy > 0: svy -= loss
+                else:       svy += loss
             vy = to_unsigned(svy)
+
+        # --- Obstacle collisions (swept AABB — mirrors VHDL swept check) ---
+        prev_top   = char_y - SIZE
+        prev_bot   = char_y + SIZE
+        prev_left  = char_x - SIZE
+        prev_right = char_x + SIZE
+
+        for (ol, ot, orr, ob) in OBSTACLES:
+            c_left = px - SIZE;  c_right = px + SIZE
+            c_top  = py - SIZE;  c_bot   = py + SIZE
+
+            if to_signed(vx) >= 0:
+                x_overlap = c_right >= ol and prev_left <= orr
+            else:
+                x_overlap = prev_right >= ol and c_left <= orr
+            if to_signed(vy) >= 0:
+                y_overlap = c_bot >= ot and prev_top <= ob
+            else:
+                y_overlap = prev_bot >= ot and c_top <= ob
+
+            if x_overlap and y_overlap:
+                if prev_bot <= ot:
+                    py = ot - SIZE; grounded = True
+                    bounced = True
+                    bounce_speed = abs(to_signed(vy))
+                    vy = negate(vy)
+                    svy = to_signed(vy)
+                    if abs(svy) > 1:
+                        loss = abs(svy) >> BOUNCE_SHIFT
+                        svy = svy - loss if svy > 0 else svy + loss
+                    if abs(svy) < 2: svy = 0
+                    vy = to_unsigned(svy)
+                elif prev_top >= ob:
+                    py = ob + SIZE
+                    bounced = True
+                    vy = negate(vy)
+                    svy = to_signed(vy)
+                    if svy > 1:
+                        svy -= svy >> BOUNCE_SHIFT
+                    vy = to_unsigned(svy)
+                elif prev_right <= ol:
+                    px = ol - SIZE
+                    bounced = True; bounce_wall = True
+                    bounce_speed = abs(to_signed(vx))
+                    vx = negate(vx)
+                    svx = to_signed(vx)
+                    if svx > 1:    svx -= svx >> BOUNCE_SHIFT
+                    elif svx < -1: svx += (-svx) >> BOUNCE_SHIFT
+                    vx = to_unsigned(svx)
+                elif prev_left >= orr:
+                    px = orr + SIZE
+                    bounced = True; bounce_wall = True
+                    bounce_speed = abs(to_signed(vx))
+                    vx = negate(vx)
+                    svx = to_signed(vx)
+                    if svx > 1:    svx -= svx >> BOUNCE_SHIFT
+                    elif svx < -1: svx += (-svx) >> BOUNCE_SHIFT
+                    vx = to_unsigned(svx)
+                else:
+                    svy_now = to_signed(vy)
+                    if svy_now >= 0: py = ot - SIZE; grounded = True
+                    else:            py = ob + SIZE
+                    bounced = True
+                    vy = negate(vy)
+                    svy = to_signed(vy)
+                    if abs(svy) > 1:
+                        loss = abs(svy) >> BOUNCE_SHIFT
+                        svy = svy - loss if svy > 0 else svy + loss
+                    vy = to_unsigned(svy)
 
         # --- Left wall bounce ---
         if px <= LEFT_WALL + SIZE:
@@ -259,75 +326,13 @@ def main():
                 svx += (-svx) >> BOUNCE_SHIFT
             vx = to_unsigned(svx)
 
-        # --- Obstacle collisions (entry-face detection using prev position) ---
-        prev_top   = char_y - SIZE
-        prev_bot   = char_y + SIZE
-        prev_left  = char_x - SIZE
-        prev_right = char_x + SIZE
-
-        for (ol, ot, orr, ob) in OBSTACLES:
-            c_left = px - SIZE
-            c_right = px + SIZE
-            c_top = py - SIZE
-            c_bot = py + SIZE
-
-            if c_right >= ol and c_left <= orr and c_bot >= ot and c_top <= ob:
-                if prev_bot <= ot:
-                    # Entered from top
-                    py = ot - SIZE; grounded = True
-                    bounced = True
-                    bounce_speed = abs(to_signed(vy))
-                    vy = negate(vy)
-                    svy = to_signed(vy)
-                    if abs(svy) > 1:
-                        loss = abs(svy) >> BOUNCE_SHIFT
-                        svy = svy - loss if svy > 0 else svy + loss
-                    if abs(svy) < 2: svy = 0
-                    vy = to_unsigned(svy)
-                elif prev_top >= ob:
-                    # Entered from bottom
-                    py = ob + SIZE
-                    bounced = True
-                    vy = negate(vy)
-                    svy = to_signed(vy)
-                    if svy > 1:
-                        svy -= svy >> BOUNCE_SHIFT
-                    vy = to_unsigned(svy)
-                elif prev_right <= ol:
-                    # Entered from left
-                    px = ol - SIZE
-                    bounced = True; bounce_wall = True
-                    bounce_speed = abs(to_signed(vx))
-                    vx = negate(vx)
-                    svx = to_signed(vx)
-                    if svx > 1:      svx -= svx >> BOUNCE_SHIFT
-                    elif svx < -1:   svx += (-svx) >> BOUNCE_SHIFT
-                    vx = to_unsigned(svx)
-                elif prev_left >= orr:
-                    # Entered from right
-                    px = orr + SIZE
-                    bounced = True; bounce_wall = True
-                    bounce_speed = abs(to_signed(vx))
-                    vx = negate(vx)
-                    svx = to_signed(vx)
-                    if svx > 1:      svx -= svx >> BOUNCE_SHIFT
-                    elif svx < -1:   svx += (-svx) >> BOUNCE_SHIFT
-                    vx = to_unsigned(svx)
-                else:
-                    # Corner/inside fallback
-                    svy_now = to_signed(vy)
-                    if svy_now >= 0: py = ot - SIZE; grounded = True
-                    else:            py = ob + SIZE
-                    bounced = True
-                    vy = negate(vy)
-                    svy = to_signed(vy)
-                    if abs(svy) > 1:
-                        loss = abs(svy) >> BOUNCE_SHIFT
-                        svy = svy - loss if svy > 0 else svy + loss
-                    vy = to_unsigned(svy)
+        # Tap slam: S was released before landing — kill bounce, plant on surface
+        if grounded and slam_tap and not slam_held:
+            vy = to_unsigned(0)
+            slam_tap = False
 
         # Hold-slam landing boost: bigger boost when slam started closer to the surface
-        if grounded and slam_held:
+        elif grounded and slam_held:
             dist = py - slam_start_y
             if dist < SLAM_CLOSE_THR:
                 slam_boost_val = SLAM_BOOST_CLOSE
@@ -337,6 +342,7 @@ def main():
                 slam_boost_val = SLAM_BOOST_FAR
             vy = (vy - slam_boost_val) & MASK
             slam_held = False
+            slam_tap = False
 
         # Commit
         char_x = px

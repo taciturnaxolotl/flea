@@ -93,6 +93,7 @@ architecture behavior of physics_engine is
     signal on_ground    : std_logic := '0';
     signal jump_pressed : std_logic := '0';
     signal slam_held    : std_logic := '0';
+    signal slam_tap     : std_logic := '0';  -- S pressed then released before landing
     signal slam_start_y : std_logic_vector(10 downto 0) := (others => '0');
     signal prev_key_s   : std_logic := '0';
 
@@ -159,6 +160,8 @@ begin
         variable jforce_slv    : std_logic_vector(9 downto 0);
         variable slam_dist     : std_logic_vector(10 downto 0);
         variable slam_boost    : std_logic_vector(9 downto 0);
+        variable x_overlap     : boolean;
+        variable y_overlap     : boolean;
     begin
         wait until vert_sync'event and vert_sync = '1';
 
@@ -194,9 +197,11 @@ begin
         if key_s = '1' and prev_key_s = '0' and on_ground = '0' then
             slam_start_y <= pos_y;
             slam_held    <= '1';
+            slam_tap     <= '1';
             vy := vy + SLAM_TAP_FORCE;
         end if;
-        if key_s = '0' then slam_held <= '0'; end if;
+        -- S released before landing: mark as tap, clear hold
+        if key_s = '0' and slam_held = '1' then slam_held <= '0'; end if;
         prev_key_s <= key_s;
 
         if key_a = '1' then
@@ -249,8 +254,6 @@ begin
         end if;
 
         -- == CEILING ==
-        -- Underflow detection: py >= 2000 means it wrapped below zero.
-        -- (GROUND=1480, RIGHT_WALL=1492 are both < 2000, so no false triggers.)
         if py >= UNDERFLOW or py <= CEILING then
             py := CEILING;
             bounced := '1';
@@ -262,7 +265,6 @@ begin
         end if;
 
         -- == LEFT WALL ==
-        -- Same underflow fix: px >= 2000 means wrapped below zero.
         if px >= UNDERFLOW or px <= LEFT_WALL + SIZE11 then
             px := LEFT_WALL + SIZE11;
             bounced := '1';  bounce_wall := '1';
@@ -287,10 +289,7 @@ begin
             end if;
         end if;
 
-        -- == OBSTACLE COLLISIONS ==
-        -- Use previous-frame bounds to detect which face was entered.
-        -- This avoids the overlap-axis bug where a fast horizontal move into
-        -- a thin platform's side gets incorrectly resolved as a vertical hit.
+        -- == OBSTACLE COLLISIONS (swept AABB) ==
         c_prev_top   := pos_y - SIZE11;
         c_prev_bot   := pos_y + SIZE11;
         c_prev_left  := pos_x - SIZE11;
@@ -302,25 +301,23 @@ begin
             c_top   := py - SIZE11;
             c_bot   := py + SIZE11;
 
-            -- 1. Swept Horizontal Overlap
-            if vx(9) = '0' then -- moving right
+            -- Swept horizontal overlap: union of prev and new extents along motion axis
+            if vx(9) = '0' then
                 x_overlap := (c_right >= OBS_L(obs_i)) and (c_prev_left <= OBS_R(obs_i));
-            else                -- moving left
+            else
                 x_overlap := (c_prev_right >= OBS_L(obs_i)) and (c_left <= OBS_R(obs_i));
             end if;
 
-            -- 2. Swept Vertical Overlap
-            if vy(9) = '0' then -- moving down (gravity is positive)
+            -- Swept vertical overlap
+            if vy(9) = '0' then
                 y_overlap := (c_bot >= OBS_T(obs_i)) and (c_prev_top <= OBS_B(obs_i));
-            else                -- moving up
+            else
                 y_overlap := (c_prev_bot >= OBS_T(obs_i)) and (c_top <= OBS_B(obs_i));
             end if;
 
-            -- 3. Check collision using the swept bounds
             if x_overlap and y_overlap then
 
                 if c_prev_bot <= OBS_T(obs_i) then
-                    -- Entered from top → land on surface
                     py := OBS_T(obs_i) - SIZE11;  grounded := '1';
                     bounced := '1';
                     vy := (not vy) + 1;
@@ -335,7 +332,6 @@ begin
                     end if;
 
                 elsif c_prev_top >= OBS_B(obs_i) then
-                    -- Entered from bottom → bump head on underside
                     py := OBS_B(obs_i) + SIZE11;
                     bounced := '1';
                     vy := (not vy) + 1;
@@ -344,7 +340,6 @@ begin
                     end if;
 
                 elsif c_prev_right <= OBS_L(obs_i) then
-                    -- Entered from left → bounce off left face
                     px := OBS_L(obs_i) - SIZE11;
                     bounced := '1';  bounce_wall := '1';
                     vx := (not vx) + 1;
@@ -355,7 +350,6 @@ begin
                     end if;
 
                 elsif c_prev_left >= OBS_R(obs_i) then
-                    -- Entered from right → bounce off right face
                     px := OBS_R(obs_i) + SIZE11;
                     bounced := '1';  bounce_wall := '1';
                     vx := (not vx) + 1;
@@ -366,7 +360,6 @@ begin
                     end if;
 
                 else
-                    -- Corner / spawn-inside fallback: resolve by velocity direction
                     if vy(9) = '0' then py := OBS_T(obs_i) - SIZE11; grounded := '1';
                     else                 py := OBS_B(obs_i) + SIZE11; end if;
                     bounced := '1';
@@ -378,19 +371,25 @@ begin
             end if;
         end loop;
 
-        -- == HOLD-SLAM LANDING BOOST ==
-        -- Bigger boost when slam started closer to the surface
-        if grounded = '1' and slam_held = '1' then
-            slam_dist := py - slam_start_y;
-            if slam_dist < SLAM_CLOSE_THR then
-                slam_boost := SLAM_BOOST_CLOSE;
-            elsif slam_dist < SLAM_MED_THR then
-                slam_boost := SLAM_BOOST_MED;
+        -- == SLAM LANDING RESOLUTION ==
+        if grounded = '1' and slam_tap = '1' then
+            if slam_held = '0' then
+                -- Tap slam: S released before landing — kill bounce, plant on surface
+                vy := (others => '0');
             else
-                slam_boost := SLAM_BOOST_FAR;
+                -- Hold slam: distance-based upward boost
+                slam_dist := py - slam_start_y;
+                if slam_dist < SLAM_CLOSE_THR then
+                    slam_boost := SLAM_BOOST_CLOSE;
+                elsif slam_dist < SLAM_MED_THR then
+                    slam_boost := SLAM_BOOST_MED;
+                else
+                    slam_boost := SLAM_BOOST_FAR;
+                end if;
+                vy := vy - slam_boost;
+                slam_held <= '0';
             end if;
-            vy := vy - slam_boost;
-            slam_held <= '0';
+            slam_tap <= '0';
         end if;
 
         -- == COMMIT ==
