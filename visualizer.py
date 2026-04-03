@@ -2,6 +2,12 @@
 """
 Bouncy Game Visualizer — mirrors the VHDL physics exactly.
 
+Updates for Full Game:
+- Expanded to 1500x1500 world bounds
+- Added 1/8th-step lag-following camera (scrolling viewport)
+- Reads obstacles from level.json (with fallback)
+- Matches piecewise jump scaling logic exactly
+
 Controls: WASD to move/jump, R to reset, T to toggle trail, Q to quit.
 
 Prerequisites:
@@ -13,46 +19,65 @@ Usage:
 
 import math
 import pygame
-import sys
+import os
+import json
 
 # --- Screen / VGA constants (match VHDL) ---
 SCREEN_W = 640
 SCREEN_H = 480
+WORLD_W = 1500
+WORLD_H = 1500
 FPS = 60
 
 # --- Physics constants (match VHDL exactly) ---
 GRAVITY = 1
 IMPULSE = 3
-SLAM_TAP_FORCE   = 18   # instant downward burst on S press in air
-SLAM_BOOST_CLOSE = 24   # upward boost on hold-slam landing, close range
-SLAM_BOOST_MED   = 16   # upward boost, medium range
-SLAM_BOOST_FAR   = 8    # upward boost, far range
-SLAM_CLOSE_THR   = 80   # pixels: "close to surface" threshold
-SLAM_MED_THR     = 200  # pixels: "medium distance" threshold
+SLAM_TAP_FORCE   = 18
+SLAM_BOOST_CLOSE = 24
+SLAM_BOOST_MED   = 16
+SLAM_BOOST_FAR   = 8
+SLAM_CLOSE_THR   = 270
+SLAM_MED_THR     = 660
 AIR_CONTROL = 2
-JUMP_FORCE = 14         # initial jump force at zero velocity (scales down with |vel_y|)
-JUMP_VEL_SCALE = 12    # velocity magnitude at which initial jump force is halved
-JUMP_MIN_FORCE = 4     # floor for inverse-scaled initial jump
-JUMP_BOUNCE = 6        # fixed additive boost on each ground contact while W held (trampoline)
+
+JUMP_BOUNCE = 6
 MAX_VEL_X = 32
 SIZE = 7
-BOUNCE_SHIFT = 3  # energy loss = vel >> 3 (keep 87.5%)
+BOUNCE_SHIFT = 3
 
 # --- Bounds (match VHDL) ---
-GROUND = 440
+GROUND = 1480
 CEILING = 16
 LEFT_WALL = 8
-RIGHT_WALL = 631
-GROUND_TOP = 448
+RIGHT_WALL = 1492
+GROUND_TOP = 1488
 CEIL_BOT = 8
 
-# --- Obstacles: (left, top, right, bottom) matching VHDL ---
-OBSTACLES = [
-    (60,  370, 180, 386),   # Low platform left
-    (250, 300, 390, 316),   # Middle floating platform
-    (440, 200, 580, 216),   # High platform right
-    (140, 120, 200, 150),   # Small block upper-left
+# --- Obstacles (Fallback if level.json is missing) ---
+DEFAULT_OBSTACLES = [
+    (60, 1430, 150, 1440), (250, 1380, 360, 1390), (490, 1420, 620, 1430),
+    (690, 1360, 980, 1370), (460, 1220, 620, 1230), (100, 1170, 270, 1180),
+    (200, 980, 460, 990), (570, 1060, 1050, 1070), (930, 1210, 1140, 1220),
+    (590, 480, 600, 760), (590, 480, 790, 490), (790, 480, 930, 490),
+    (920, 500, 930, 760), (920, 490, 930, 500), (590, 760, 820, 770),
+    (720, 640, 820, 650), (650, 570, 730, 580), (310, 800, 510, 810),
+    (70, 620, 180, 640), (190, 360, 370, 410), (420, 540, 500, 550),
+    (490, 200, 650, 220), (200, 170, 300, 180), (1010, 220, 1170, 290),
+    (780, 280, 890, 290), (1120, 580, 1280, 590), (990, 770, 1220, 790),
+    (940, 970, 1340, 980), (1280, 850, 1350, 890), (640, 910, 700, 940),
+    (1250, 350, 1330, 380), (1200, 1360, 1300, 1380), (1330, 1220, 1400, 1250),
+    (1270, 1100, 1430, 1140)
 ]
+
+def load_obstacles():
+    if os.path.exists("level.json"):
+        try:
+            with open("level.json", "r") as f:
+                data = json.load(f)
+                return [(o["l"], o["t"], o["r"], o["b"]) for o in data.get("obstacles", [])]
+        except Exception as e:
+            print(f"Warning: Failed to load level.json ({e}). Using fallback.")
+    return DEFAULT_OBSTACLES
 
 # --- Colors (1-bit RGB) ---
 COLOR_SKY    = (0, 0, 0)
@@ -79,19 +104,24 @@ def negate(v):
 def main():
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
-    pygame.display.set_caption("Bouncy Game — VHDL Physics Preview")
+    pygame.display.set_caption("Bouncy Game — Full Level Visualizer")
     clock = pygame.time.Clock()
 
+    obstacles = load_obstacles()
+
     char_x = 100
-    char_y = 200
+    char_y = 1400
+    cam_x = 0
+    cam_y = 1020
+
     vel_x = to_unsigned(0)
     vel_y = to_unsigned(0)
     squish = 0
-    squish_h = False  # False = vertical squish (floor/ceil), True = horizontal squish (walls)
+    squish_h = False
     on_ground = False
     jump_pressed = False
     slam_held = False
-    slam_tap = False     # S pressed and released before landing — suppress bounce
+    slam_tap = False
     slam_start_y = 0
     prev_key_s = False
 
@@ -117,11 +147,13 @@ def main():
                 elif event.key == pygame.K_v:
                     show_vector = not show_vector
                 elif event.key == pygame.K_r:
-                    char_x, char_y = 100, 200
+                    char_x, char_y = 100, 1400
+                    cam_x, cam_y = 0, 1020
                     vel_x = vel_y = to_unsigned(0)
                     squish = 0; squish_h = False; on_ground = False; jump_pressed = False
                     slam_held = False; slam_tap = False; slam_start_y = 0; prev_key_s = False
                     trail.clear()
+                    obstacles = load_obstacles() # Reload map on reset
             elif event.type == pygame.KEYUP:
                 if event.key == pygame.K_w: keys_held['w'] = False
                 elif event.key == pygame.K_a: keys_held['a'] = False
@@ -138,52 +170,42 @@ def main():
         bounce_speed = 0
         grounded = False
 
-        # Jump latch
         if not keys_held['w']:
             jump_pressed = False
 
-        # Compute scaled jump force: full force at zero velocity, tapers off as speed rises
+        # VHDL piecewise jump logic
         def scaled_jump():
             speed = abs(to_signed(vel_y))
-            force = JUMP_FORCE * JUMP_VEL_SCALE / (JUMP_VEL_SCALE + speed)
-            return max(int(force), JUMP_MIN_FORCE)
+            if speed <= 3: return 14
+            elif speed <= 10: return 8
+            elif speed <= 20: return 6
+            else: return 4
 
-        # First press on ground: full jump (elif prevents double-apply on same frame)
         if keys_held['w'] and not jump_pressed and on_ground:
             vy = (vy - scaled_jump()) & MASK
             jump_pressed = True
         elif keys_held['w'] and jump_pressed and on_ground:
-            # Holding W while bouncing: fixed boost so trampoline accumulates each contact
             vy = (vy - JUMP_BOUNCE) & MASK
 
-        # S slam: rising edge in air = tap burst downward; hold to get landing boost
         if keys_held['s'] and not prev_key_s and not on_ground:
             slam_start_y = char_y
             slam_held = True
             slam_tap = True
             vy = (vy + SLAM_TAP_FORCE) & MASK
         if not keys_held['s'] and slam_held:
-            # S released before landing — mark as tap, no hold boost
             slam_held = False
         prev_key_s = keys_held['s']
 
-        # A/D
         if keys_held['a']:
-            if on_ground:
-                vx = (vx - IMPULSE) & MASK
-            else:
-                vx = (vx - AIR_CONTROL) & MASK
+            if on_ground: vx = (vx - IMPULSE) & MASK
+            else:         vx = (vx - AIR_CONTROL) & MASK
 
         if keys_held['d']:
-            if on_ground:
-                vx = (vx + IMPULSE) & MASK
-            else:
-                vx = (vx + AIR_CONTROL) & MASK
+            if on_ground: vx = (vx + IMPULSE) & MASK
+            else:         vx = (vx + AIR_CONTROL) & MASK
 
-        # Gravity
         vy = (vy + GRAVITY) & MASK
 
-        # Friction: vel -= vel/4, min 1
         svx = to_signed(vx)
         if svx > 0:
             drag = svx >> 2
@@ -195,36 +217,29 @@ def main():
             svx += drag
         vx = to_unsigned(svx)
 
-        # Clamp X
         svx = to_signed(vx)
         if svx > MAX_VEL_X: svx = MAX_VEL_X
         elif svx < -MAX_VEL_X: svx = -MAX_VEL_X
         vx = to_unsigned(svx)
 
-        # Clamp Y
         svy = to_signed(vy)
         if svy > 80: svy = 80
         elif svy < -100: svy = -100
         vy = to_unsigned(svy)
 
-        # Update position
         px = char_x + to_signed(vx)
         py = char_y + to_signed(vy)
 
-        # --- Ground bounce ---
         if py >= GROUND:
             py = GROUND
             bounced = True; grounded = True
             bounce_speed = abs(to_signed(vy))
             vy = negate(vy)
             svy = to_signed(vy)
-            if svy < -1:
-                svy += (-svy) >> BOUNCE_SHIFT
-            if abs(svy) < 2:
-                svy = 0
+            if svy < -1: svy += (-svy) >> BOUNCE_SHIFT
+            if abs(svy) < 2: svy = 0
             vy = to_unsigned(svy)
 
-        # --- Ceiling bounce ---
         if py <= CEILING:
             py = CEILING
             bounced = True
@@ -232,30 +247,26 @@ def main():
             vy = negate(vy)
             svy = to_signed(vy)
             if abs(svy) > 1:
-                svy_abs = abs(svy)
-                loss = svy_abs >> BOUNCE_SHIFT
+                loss = abs(svy) >> BOUNCE_SHIFT
                 if svy > 0: svy -= loss
                 else:       svy += loss
             vy = to_unsigned(svy)
 
-        # --- Obstacle collisions (swept AABB — mirrors VHDL swept check) ---
+        # AABB Sweep
         prev_top   = char_y - SIZE
         prev_bot   = char_y + SIZE
         prev_left  = char_x - SIZE
         prev_right = char_x + SIZE
 
-        for (ol, ot, orr, ob) in OBSTACLES:
+        for (ol, ot, orr, ob) in obstacles:
             c_left = px - SIZE;  c_right = px + SIZE
             c_top  = py - SIZE;  c_bot   = py + SIZE
 
-            if to_signed(vx) >= 0:
-                x_overlap = c_right >= ol and prev_left < orr
-            else:
-                x_overlap = prev_right > ol and c_left <= orr
-            if to_signed(vy) >= 0:
-                y_overlap = c_bot >= ot and prev_top < ob
-            else:
-                y_overlap = prev_bot > ot and c_top <= ob
+            if to_signed(vx) >= 0: x_overlap = c_right >= ol and prev_left < orr
+            else:                  x_overlap = prev_right > ol and c_left <= orr
+
+            if to_signed(vy) >= 0: y_overlap = c_bot >= ot and prev_top < ob
+            else:                  y_overlap = prev_bot > ot and c_top <= ob
 
             if x_overlap and y_overlap:
                 if prev_bot <= ot + SIZE and to_signed(vy) >= 0:
@@ -274,8 +285,7 @@ def main():
                     bounced = True
                     vy = negate(vy)
                     svy = to_signed(vy)
-                    if svy > 1:
-                        svy -= svy >> BOUNCE_SHIFT
+                    if svy > 1: svy -= svy >> BOUNCE_SHIFT
                     vy = to_unsigned(svy)
                 elif prev_right <= ol and to_signed(vx) >= 0:
                     px = ol - SIZE
@@ -307,119 +317,127 @@ def main():
                         svy = svy - loss if svy > 0 else svy + loss
                     vy = to_unsigned(svy)
 
-        # --- Left wall bounce ---
         if px <= LEFT_WALL + SIZE:
             px = LEFT_WALL + SIZE
             bounced = True; bounce_wall = True
             bounce_speed = abs(to_signed(vx))
             vx = negate(vx)
             svx = to_signed(vx)
-            if svx > 1:
-                svx -= svx >> BOUNCE_SHIFT
+            if svx > 1: svx -= svx >> BOUNCE_SHIFT
             vx = to_unsigned(svx)
 
-        # --- Right wall bounce ---
         if px >= RIGHT_WALL - SIZE:
             px = RIGHT_WALL - SIZE
             bounced = True; bounce_wall = True
             bounce_speed = abs(to_signed(vx))
             vx = negate(vx)
             svx = to_signed(vx)
-            if svx < -1:
-                svx += (-svx) >> BOUNCE_SHIFT
+            if svx < -1: svx += (-svx) >> BOUNCE_SHIFT
             vx = to_unsigned(svx)
 
-        # Tap slam: S was released before landing — kill bounce, plant on surface
         if grounded and slam_tap and not slam_held:
             vy = to_unsigned(0)
             slam_tap = False
-
-        # Hold-slam landing boost: bigger boost when slam started closer to the surface
         elif grounded and slam_held:
             dist = py - slam_start_y
-            if dist < SLAM_CLOSE_THR:
-                slam_boost_val = SLAM_BOOST_CLOSE
-            elif dist < SLAM_MED_THR:
-                slam_boost_val = SLAM_BOOST_MED
-            else:
-                slam_boost_val = SLAM_BOOST_FAR
+            if dist < SLAM_CLOSE_THR: slam_boost_val = SLAM_BOOST_CLOSE
+            elif dist < SLAM_MED_THR: slam_boost_val = SLAM_BOOST_MED
+            else:                     slam_boost_val = SLAM_BOOST_FAR
             vy = (vy - slam_boost_val) & MASK
             slam_held = False
             slam_tap = False
 
-        # Commit
         char_x = px
         char_y = py
         vel_x = vx
         vel_y = vy
 
-        # On ground
         on_ground = grounded or (py >= GROUND - 1)
 
-        # Squish — only on impacts with real velocity, not idle ground contact
         if bounced and bounce_speed > 3:
             squish = min(bounce_speed, 8)
             squish_h = bounce_wall
         elif squish > 0:
             squish -= 1
 
-        # Trail
         if show_trail:
             trail.append((char_x, char_y))
             if len(trail) > 300:
                 trail.pop(0)
 
         # =============================================================
+        # Camera Update (Matches VHDL Lag-Follow)
+        # =============================================================
+        if char_x < 320: tcx = 0
+        elif char_x > 1180: tcx = 860
+        else: tcx = char_x - 320
+
+        if char_y < 240: tcy = 0
+        elif char_y > 1260: tcy = 1020
+        else: tcy = char_y - 240
+
+        if cam_x < tcx:
+            dcx = tcx - cam_x
+            cam_x += 1 if (dcx >> 3) == 0 else (dcx >> 3)
+        elif cam_x > tcx:
+            dcx = cam_x - tcx
+            cam_x -= 1 if (dcx >> 3) == 0 else (dcx >> 3)
+
+        if cam_y < tcy:
+            dcy = tcy - cam_y
+            cam_y += 1 if (dcy >> 3) == 0 else (dcy >> 3)
+        elif cam_y > tcy:
+            dcy = cam_y - tcy
+            cam_y -= 1 if (dcy >> 3) == 0 else (dcy >> 3)
+
+
+        # =============================================================
         # Rendering
         # =============================================================
+        def w2s(wx, wy):
+            return (wx - cam_x, wy - cam_y)
+
         screen.fill(COLOR_SKY)
 
-        # Ceiling
-        pygame.draw.rect(screen, COLOR_CEIL, (0, 0, SCREEN_W, CEIL_BOT))
-
-        # Ground
-        pygame.draw.rect(screen, COLOR_GROUND,
-                         (0, GROUND_TOP, SCREEN_W, SCREEN_H - GROUND_TOP))
-
-        # Walls
-        pygame.draw.rect(screen, COLOR_WALL, (0, 0, LEFT_WALL, SCREEN_H))
-        pygame.draw.rect(screen, COLOR_WALL,
-                         (RIGHT_WALL, 0, SCREEN_W - RIGHT_WALL, SCREEN_H))
+        # Ceil / Ground / Walls
+        pygame.draw.rect(screen, COLOR_CEIL, (0, 0 - cam_y, WORLD_W, CEIL_BOT))
+        pygame.draw.rect(screen, COLOR_GROUND, (0, GROUND_TOP - cam_y, WORLD_W, WORLD_H - GROUND_TOP))
+        pygame.draw.rect(screen, COLOR_WALL, (0 - cam_x, 0, LEFT_WALL, WORLD_H))
+        pygame.draw.rect(screen, COLOR_WALL, (RIGHT_WALL - cam_x, 0, WORLD_W - RIGHT_WALL, WORLD_H))
 
         # Obstacles
-        for (ol, ot, orr, ob) in OBSTACLES:
-            pygame.draw.rect(screen, COLOR_OBS,
-                             (ol, ot, orr - ol, ob - ot))
+        for (ol, ot, orr, ob) in obstacles:
+            sx, sy = w2s(ol, ot)
+            pygame.draw.rect(screen, COLOR_OBS, (sx, sy, orr - ol, ob - ot))
 
         # Trail
         if show_trail and len(trail) > 1:
             for i, (tx, ty) in enumerate(trail):
+                sx, sy = w2s(tx, ty)
                 alpha = int(80 * i / len(trail))
                 s = pygame.Surface((1, 1))
                 s.set_alpha(alpha)
                 s.fill((255, 100, 100))
-                screen.blit(s, (tx, ty))
+                screen.blit(s, (sx, sy))
 
-        # Character with squish
-        # Vertical squish (floor/ceil): wider + shorter
-        # Horizontal squish (walls): taller + narrower
+        # Character
+        cx, cy = w2s(char_x, char_y)
         if not squish_h:
             cw = SIZE + squish
             ch = SIZE - squish // 2
         else:
             cw = SIZE - squish // 2
             ch = SIZE + squish
-        pygame.draw.rect(screen, COLOR_CHAR,
-                         (char_x - cw, char_y - ch, cw * 2, ch * 2))
+        pygame.draw.rect(screen, COLOR_CHAR, (cx - cw, cy - ch, cw * 2, ch * 2))
 
-        # Velocity vector arrow (scale: 2px per unit of velocity)
+        # Velocity Vector
         svx = to_signed(vel_x)
         svy = to_signed(vel_y)
         if show_vector and (svx != 0 or svy != 0):
             ARROW_SCALE = 2
-            ax = char_x + svx * ARROW_SCALE
-            ay = char_y + svy * ARROW_SCALE
-            pygame.draw.line(screen, (255, 255, 255), (char_x, char_y), (ax, ay), 2)
+            ax = cx + svx * ARROW_SCALE
+            ay = cy + svy * ARROW_SCALE
+            pygame.draw.line(screen, (255, 255, 255), (cx, cy), (ax, ay), 2)
             angle = math.atan2(svy, svx)
             head = 6
             for side in (+0.5, -0.5):
@@ -427,22 +445,20 @@ def main():
                 hy = ay - head * math.sin(angle + side)
                 pygame.draw.line(screen, (255, 255, 255), (ax, ay), (int(hx), int(hy)), 2)
 
-        # HUD
+        # Static HUD
         info = [
             f"pos: ({char_x}, {char_y})  vel: ({svx}, {svy})",
-            f"squish: {squish}  ground: {'yes' if on_ground else 'no'}",
-            "",
+            f"cam: ({cam_x}, {cam_y})  squish: {squish}",
             "WASD: move/jump   R: reset   T: trail   V: vector   Q: quit",
         ]
         for i, line in enumerate(info):
             surf = font.render(line, True, (255, 255, 255))
-            screen.blit(surf, (LEFT_WALL + 4, CEIL_BOT + 4 + i * 16))
+            screen.blit(surf, (8, 8 + i * 16))
 
         pygame.display.flip()
         clock.tick(FPS)
 
     pygame.quit()
-
 
 if __name__ == "__main__":
     main()
